@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: receipt_db
+    environment:
+      POSTGRES_DB: receipt_categorization
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - receipt_network
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: receipt_api
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/receipt_categorization
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - ./config:/app/config
+    command: uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - receipt_network
+
+  # Frontend (Nginx)
+  frontend:
+    image: nginx:alpine
+    container_name: receipt_frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    networks:
+      - receipt_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  receipt_network:
+    driver: bridge
