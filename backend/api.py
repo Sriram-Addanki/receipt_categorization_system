@@ -9,12 +9,139 @@ from typing import List, Optional, Dict
 from datetime import date, datetime
 from sqlalchemy.orm import Session
 import uuid
+# Add to existing imports
+from fastapi import File, UploadFile
+from backend.ocr_processor import ReceiptOCR
+import io
 
-from models import (
+# Initialize OCR processor (add after app initialization)
+ocr_processor = ReceiptOCR()
+
+# Add new endpoint for image upload
+@app.post("/upload-receipt", tags=["OCR"])
+async def upload_receipt_image(
+    file: UploadFile = File(...),
+    user_id: str = "USER123",
+    db_session: Session = Depends(get_db_session)
+):
+    """
+    Upload receipt image and automatically extract + categorize
+    
+    **Process:**
+    1. Receives image file (JPG, PNG, PDF)
+    2. Runs OCR to extract text
+    3. Parses structured data (merchant, amount, date)
+    4. Categorizes using existing engine
+    5. Returns full result
+    
+    **Supported formats:** JPG, JPEG, PNG, PDF
+    """
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image (JPG, PNG)"
+            )
+        
+        # Read image bytes
+        image_bytes = await file.read()
+        
+        # Process with OCR
+        try:
+            ocr_data = ocr_processor.process_receipt_image(image_bytes)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"OCR processing failed: {str(e)}"
+            )
+        
+        # Validate required fields
+        if not ocr_data.get("merchant_name"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract merchant name from image. Please try a clearer image."
+            )
+        
+        if not ocr_data.get("total_amount"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract total amount from image. Please try a clearer image."
+            )
+        
+        # Generate receipt ID
+        receipt_id = f"REC_{uuid.uuid4().hex[:12].upper()}"
+        
+        # Create receipt record
+        receipt = Receipt(
+            receipt_id=receipt_id,
+            user_id=user_id,
+            merchant_name=ocr_data["merchant_name"],
+            total_amount=ocr_data["total_amount"],
+            tax_amount=ocr_data.get("tax_amount"),
+            subtotal=ocr_data.get("subtotal"),
+            transaction_date=ocr_data.get("transaction_date") or date.today(),
+            receipt_data={
+                "raw_text": ocr_data.get("raw_text"),
+                "line_items": ocr_data.get("line_items", []),
+                "ocr_confidence": "tesseract"
+            }
+        )
+        db_session.add(receipt)
+        db_session.flush()
+        
+        # Categorize
+        categorizer_input = {
+            "receipt_id": receipt_id,
+            "merchant_name": ocr_data["merchant_name"],
+            "amount": ocr_data["total_amount"],
+            "transaction_date": str(receipt.transaction_date),
+            "keywords": ocr_data.get("keywords", []),
+            "line_items": ocr_data.get("line_items", [])
+        }
+        
+        categorizer = ReceiptCategorizer(db_session)
+        result = categorizer.categorize(categorizer_input)
+        
+        # Save prediction
+        prediction = CategorizationPrediction(
+            receipt_id=receipt_id,
+            predicted_category=result["category"],
+            confidence_score=result["confidence"],
+            prediction_method=result["method"],
+            needs_review=result["needs_review"],
+            prediction_reason=result["reason"]
+        )
+        db_session.add(prediction)
+        db_session.commit()
+        
+        # Return complete result
+        return {
+            "receipt_id": receipt_id,
+            "ocr_extracted": ocr_data,
+            "categorization": {
+                "category": result["category"],
+                "confidence": result["confidence"],
+                "needs_review": result["needs_review"],
+                "method": result["method"],
+                "reason": result["reason"]
+            },
+            "receipt_data": receipt.to_dict()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Processing failed: {str(e)}"
+        )
+from backend.models import (
     Database, Receipt, CategorizationPrediction, 
     IRSCategory, MerchantCategory, get_db_session
 )
-from categorizer import ReceiptCategorizer
+from backend.categorizer import ReceiptCategorizer
 
 # ============================================
 # Initialize FastAPI

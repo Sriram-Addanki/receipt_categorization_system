@@ -6,7 +6,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 from fuzzywuzzy import fuzz
 from sqlalchemy.orm import Session
-from models import (
+from backend.models import (
     MerchantCategory, CategoryKeyword, Receipt, 
     CategorizationPrediction, FeedbackLog
 )

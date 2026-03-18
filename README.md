@@ -74,7 +74,7 @@ python -m http.server 8080
 ```
 Receipt Upload
     ↓
-OCR Extraction (Laxman's work - already done)
+OCR Extraction
     ↓
 Categorization Engine
     ├─ Exact merchant match? → High confidence
@@ -465,12 +465,6 @@ ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
 
 ---
 
-## 📞 Support
-
-- **Issues:** Open a GitHub issue
-- **Questions:** See documentation at `/docs`
-- **Email:** support@yourcompany.com
-
 ---
 
 ## ✨ Key Features
@@ -486,4 +480,4 @@ ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
 
 ---
 
-**Built with ❤️ for your finance application**
+

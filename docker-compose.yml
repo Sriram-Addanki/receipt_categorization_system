@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: receipt_db
@@ -22,7 +21,6 @@ services:
     networks:
       - receipt_network
 
-  # FastAPI Backend
   api:
     build:
       context: .
@@ -32,6 +30,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/receipt_categorization
       API_HOST: 0.0.0.0
       API_PORT: 8000
+      PYTHONPATH: /app
     ports:
       - "8000:8000"
     depends_on:
@@ -40,11 +39,11 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./config:/app/config
-    command: uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
+    working_dir: /app
+    command: python -m uvicorn backend.api:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - receipt_network
 
-  # Frontend (Nginx)
   frontend:
     image: nginx:alpine
     container_name: receipt_frontend
